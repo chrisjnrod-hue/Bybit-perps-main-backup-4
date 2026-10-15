@@ -2673,48 +2673,32 @@ module.exports = {
                 let isHighConfidence = mtfValidation.mtfScore >= acceptThreshold;
                 let decision = isHighConfidence ? 'accept' : 'monitor';
 
-                // NEW: UNIVERSAL 1D criteria gate (applies to all root TF signals)
-                // Requirement: for an 'accept' decision, at least one of:
-                //  - Daily MACD flip on current daily candle
-                //  - Daily 7/14/28 MA upwards crossing (ma7 > ma14 > ma28 at any fetched point)
-                // must be true. If neither is true, downgrade to 'monitor'.
+                // NEW: 1D MA structural filter
                 try {
-                  if (decision === 'accept') {
-                    let passedDailyFlip = false;
-                    let passedMaStructure = false;
-
-                    try {
-                      passedDailyFlip = await macdUtil.isMacdFlip(symbol, 'D');
-                    } catch (err) {
-                      logger.debug({ err, symbol }, 'poller: daily MACD flip check failed');
-                    }
-
+                  const normalizedTf = normalizeRootTf(tf);
+                  if (normalizedTf === 'D') {
                     if (typeof macdUtil.is1dMaStructure === 'function') {
-                      try {
-                        passedMaStructure = await macdUtil.is1dMaStructure(symbol);
-                      } catch (err) {
-                        logger.debug({ err, symbol }, 'poller: is1dMaStructure threw');
+                      const passed1dStructure = await macdUtil.is1dMaStructure(symbol);
+
+                      if (!passed1dStructure) {
+                        logger.info(
+                          { symbol, tf, latestOpen },
+                          'poller: 1d MA structure check failed; downgrading to monitor'
+                        );
+                        decision = 'monitor';
+                        isHighConfidence = false;
                       }
                     } else {
-                      logger.warn({ symbol }, 'poller: macdUtil.is1dMaStructure missing; cannot evaluate MA structure gate');
-                    }
-
-                    if (!passedDailyFlip && !passedMaStructure) {
-                      logger.info(
-                        { symbol, tf, latestOpen, passedDailyFlip, passedMaStructure },
-                        'poller: 1d criteria gate failed (neither daily flip nor 7/14/28 MA structure); downgrading to monitor'
+                      logger.warn(
+                        { symbol, tf },
+                        'poller: macdUtil.is1dMaStructure missing; treating as failed and downgrading to monitor'
                       );
                       decision = 'monitor';
                       isHighConfidence = false;
-                    } else {
-                      logger.info(
-                        { symbol, tf, latestOpen, passedDailyFlip, passedMaStructure },
-                        'poller: 1d criteria gate passed (daily flip or 7/14/28 MA structure)'
-                      );
                     }
                   }
                 } catch (err) {
-                  logger.debug({ err, symbol, tf }, 'poller: 1d criteria gate threw; downgrading to monitor');
+                  logger.debug({ err, symbol, tf }, 'poller: 1d MA structure check threw; downgrading to monitor');
                   decision = 'monitor';
                   isHighConfidence = false;
                 }
